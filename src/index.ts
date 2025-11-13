@@ -226,62 +226,46 @@ export default function createServer({
             };
           }
         } catch (webhookError: any) {
-          // If 404, transcript not ready yet
+          // If 404, transcript not ready yet - this is normal, job is still processing
           if (webhookError.response?.status === 404) {
-            // Fall back to checking Deepgram Management API for status
-            try {
-              const mgmtResult = await deepgramClient.getTranscriptionResult(request_id);
-              
-              if (mgmtResult.response) {
-                return {
-                  content: [
-                    {
-                      type: "text",
-                      text: `⏳ **Processing Complete** - Waiting for webhook delivery\n\n` +
-                            `**Request ID**: ${request_id}\n` +
-                            `**Status**: Deepgram finished processing\n` +
-                            `**Completed**: ${mgmtResult.response.completed}\n` +
-                            `**Duration**: ${mgmtResult.response.details?.duration?.toFixed(2)}s\n\n` +
-                            `The transcript should arrive at the webhook relay shortly. Please check again in 5-10 seconds.`,
-                    },
-                  ],
-                };
-              } else {
-                return {
-                  content: [
-                    {
-                      type: "text",
-                      text: `⏳ **Still Processing**\n\n` +
-                            `**Request ID**: ${request_id}\n` +
-                            `**Status**: Deepgram is still transcribing your audio\n` +
-                            `**Created**: ${mgmtResult.created}\n\n` +
-                            `Please wait 30 seconds and check again. Processing time varies based on audio length.`,
-                    },
-                  ],
-                };
-              }
-            } catch (mgmtError: any) {
-              // Management API also failed
-              return {
-                content: [
-                  {
-                    type: "text",
-                    text: `⏳ **Status Unknown**\n\n` +
-                          `**Request ID**: ${request_id}\n\n` +
-                          `Unable to retrieve status from webhook relay or Deepgram Management API.\n\n` +
-                          `**Possible reasons**:\n` +
-                          `- Job is still processing (wait 30 seconds and try again)\n` +
-                          `- Invalid request_id\n` +
-                          `- Webhook relay is down\n` +
-                          `- API key lacks permissions\n\n` +
-                          `**Error**: ${mgmtError.message}`,
-                  },
-                ],
-              };
-            }
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `⏳ **Still Processing**\n\n` +
+                        `**Request ID**: ${request_id}\n\n` +
+                        `Deepgram is still transcribing your audio. This is normal for longer files.\n\n` +
+                        `**Next Steps**:\n` +
+                        `- Wait 30 seconds\n` +
+                        `- Check status again using this same request_id\n` +
+                        `- Repeat until transcript is ready\n\n` +
+                        `💡 **Estimated times**: 5min video → 30-60s | 30min video → 1-2min | 1hr video → 2-3min`,
+                },
+              ],
+            };
           }
           
-          // Other webhook error
+          // Other webhook errors (relay down, network issues, etc.)
+          if (webhookError.code === 'ECONNREFUSED' || webhookError.code === 'ENOTFOUND') {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `❌ **Webhook Relay Unreachable**\n\n` +
+                        `**Request ID**: ${request_id}\n\n` +
+                        `Cannot connect to webhook relay at: ${webhookRetrievalUrl}\n\n` +
+                        `**Troubleshooting**:\n` +
+                        `- Verify your webhook relay is deployed and running\n` +
+                        `- Check the webhook URL in your configuration\n` +
+                        `- Test the health endpoint: ${config.webhookUrl.replace('/callback', '/health')}\n` +
+                        `- Ensure the Cloudflare Worker is not paused or deleted`,
+                },
+              ],
+              isError: true,
+            };
+          }
+          
+          // Other unexpected webhook error
           throw webhookError;
         }
 

@@ -121,32 +121,28 @@ ${u.transcript}
 **Summary**:
 
 ${c.transcript.results.summary.text}
-`),{content:[{type:"text",text:d}]}}}catch(o){if(o.response?.status===404)try{let c=await r.getTranscriptionResult(n);return c.response?{content:[{type:"text",text:`\u23F3 **Processing Complete** - Waiting for webhook delivery
-
-**Request ID**: ${n}
-**Status**: Deepgram finished processing
-**Completed**: ${c.response.completed}
-**Duration**: ${c.response.details?.duration?.toFixed(2)}s
-
-The transcript should arrive at the webhook relay shortly. Please check again in 5-10 seconds.`}]}:{content:[{type:"text",text:`\u23F3 **Still Processing**
-
-**Request ID**: ${n}
-**Status**: Deepgram is still transcribing your audio
-**Created**: ${c.created}
-
-Please wait 30 seconds and check again. Processing time varies based on audio length.`}]}}catch(c){return{content:[{type:"text",text:`\u23F3 **Status Unknown**
+`),{content:[{type:"text",text:d}]}}}catch(o){if(o.response?.status===404)return{content:[{type:"text",text:`\u23F3 **Still Processing**
 
 **Request ID**: ${n}
 
-Unable to retrieve status from webhook relay or Deepgram Management API.
+Deepgram is still transcribing your audio. This is normal for longer files.
 
-**Possible reasons**:
-- Job is still processing (wait 30 seconds and try again)
-- Invalid request_id
-- Webhook relay is down
-- API key lacks permissions
+**Next Steps**:
+- Wait 30 seconds
+- Check status again using this same request_id
+- Repeat until transcript is ready
 
-**Error**: ${c.message}`}]}}throw o}return{content:[{type:"text",text:"\u2753 Unexpected response format from webhook relay"}]}}catch(i){return{content:[{type:"text",text:`\u274C Failed to check job status: ${i.message}
+\u{1F4A1} **Estimated times**: 5min video \u2192 30-60s | 30min video \u2192 1-2min | 1hr video \u2192 2-3min`}]};if(o.code==="ECONNREFUSED"||o.code==="ENOTFOUND")return{content:[{type:"text",text:`\u274C **Webhook Relay Unreachable**
+
+**Request ID**: ${n}
+
+Cannot connect to webhook relay at: ${i}
+
+**Troubleshooting**:
+- Verify your webhook relay is deployed and running
+- Check the webhook URL in your configuration
+- Test the health endpoint: ${t.webhookUrl.replace("/callback","/health")}
+- Ensure the Cloudflare Worker is not paused or deleted`}],isError:!0};throw o}return{content:[{type:"text",text:"\u2753 Unexpected response format from webhook relay"}]}}catch(i){return{content:[{type:"text",text:`\u274C Failed to check job status: ${i.message}
 
 **Troubleshooting**:
 - Verify the request_id is correct
