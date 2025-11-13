@@ -1,0 +1,50 @@
+{
+  "name": "deepgram-mcp-server",
+  "version": "1.0.0",
+  "description": "Remote MCP server for Deepgram Async Speech-to-Text - transcribe audio and video files asynchronously",
+  "main": "index.js",
+  "module": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "npx smithery dev",
+    "build": "npx smithery build",
+    "test": "jest"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "deepgram",
+    "speech-to-text",
+    "transcription",
+    "async",
+    "remote-server",
+    "smithery"
+  ],
+  "author": "Deepgram MCP Server",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ctaylor86/deepgram-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ctaylor86/deepgram-mcp-server/issues"
+  },
+  "homepage": "https://github.com/ctaylor86/deepgram-mcp-server#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.2",
+    "@smithery/sdk": "^1.6.4",
+    "axios": "^1.12.2",
+    "zod": "^3.25.46"
+  },
+  "devDependencies": {
+    "@smithery/cli": "^1.4.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.0.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.5",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
