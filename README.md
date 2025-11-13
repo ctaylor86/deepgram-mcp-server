@@ -1,5 +1,7 @@
 # Deepgram MCP Server
 
+[![smithery badge](https://smithery.ai/badge/@ctaylor86/deepgram-mcp-server)](https://smithery.ai/server/@ctaylor86/deepgram-mcp-server)
+
 Remote MCP server for Deepgram Async Speech-to-Text API. Transcribe audio and video files asynchronously with advanced features perfect for marketers transcribing videos and podcasts.
 
 ## Features
