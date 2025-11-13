@@ -32,7 +32,27 @@ This server is designed to be hosted on [Smithery](https://smithery.ai).
 
 When deploying to Smithery, you'll need to provide:
 
-- **Deepgram API Key**: Your Deepgram API key for authentication
+- **Deepgram API Key**: Your Deepgram API key for authentication (must have **Member role or higher**)
+- **Project ID** (Optional): Your Deepgram project ID (only needed if your API key has restricted permissions)
+
+**Important**: Your API key must have at least **Member** role permissions to use all features. See [API_PERMISSIONS.md](./API_PERMISSIONS.md) for detailed information about required permissions and troubleshooting 403 errors.
+
+## API Key Requirements
+
+⚠️ **Important**: Your Deepgram API key must have **Member role or higher** for full functionality.
+
+Required permissions:
+- `project:write` - Submit transcription jobs
+- `project:read` - Auto-detect project ID (optional if you provide projectId)
+- `usage:read` - Check job status and retrieve results
+
+**How to create a proper API key**:
+1. Go to [Deepgram Console](https://console.deepgram.com)
+2. Navigate to **API Keys** → **Create Key**
+3. Select **Member** role (or Admin/Owner)
+4. Copy the key and use it in your configuration
+
+For detailed troubleshooting of 403 errors, see [API_PERMISSIONS.md](./API_PERMISSIONS.md).
 
 ## Usage
 

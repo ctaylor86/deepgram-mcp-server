@@ -16,7 +16,8 @@ import { DeepgramClient } from "./deepgram-client.js";
 
 // Configuration schema for the MCP server
 export const configSchema = z.object({
-  deepgramApiKey: z.string().describe("Your Deepgram API key for speech-to-text transcription"),
+  deepgramApiKey: z.string().describe("Your Deepgram API key for speech-to-text transcription (must have Member role or higher for full functionality)"),
+  projectId: z.string().optional().describe("Optional: Your Deepgram project ID. If not provided, will be auto-detected from your API key. Required if your API key has restricted permissions."),
 });
 
 export default function createServer({
@@ -32,6 +33,7 @@ export default function createServer({
   // Initialize Deepgram client
   const deepgramClient = new DeepgramClient({
     apiKey: config.deepgramApiKey,
+    projectId: config.projectId,
   });
 
   // Tool 1: Submit Transcription Job

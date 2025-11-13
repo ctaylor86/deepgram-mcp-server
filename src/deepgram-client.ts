@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from "axios";
 
 export interface DeepgramConfig {
   apiKey: string;
+  projectId?: string;
 }
 
 export interface TranscriptionOptions {
@@ -107,22 +108,42 @@ export class DeepgramClient {
 
   /**
    * Get the project ID associated with the API key
-   * Caches the result to avoid repeated API calls
+   * Uses provided projectId from config if available, otherwise fetches and caches
    */
   async getProjectId(): Promise<string> {
+    // If projectId was provided in config, use that
+    if (this.config.projectId) {
+      return this.config.projectId;
+    }
+
+    // If already cached, return cached value
     if (this.projectIdCache) {
       return this.projectIdCache;
     }
 
-    const response = await this.client.get<ListProjectsResponse>("/projects");
+    // Otherwise, fetch from API
+    try {
+      const response = await this.client.get<ListProjectsResponse>("/projects");
 
-    if (!response.data.projects || response.data.projects.length === 0) {
-      throw new Error("No projects found for this API key");
+      if (!response.data.projects || response.data.projects.length === 0) {
+        throw new Error(
+          "No projects found for this API key. Please provide projectId in configuration."
+        );
+      }
+
+      // Use the first project
+      this.projectIdCache = response.data.projects[0].project_id;
+      return this.projectIdCache;
+    } catch (error: any) {
+      if (error.response?.status === 403) {
+        throw new Error(
+          "403 Forbidden: Your API key does not have permission to list projects. " +
+          "Please provide projectId in the configuration, or create an API key with Member role or higher. " +
+          "Visit https://console.deepgram.com to manage your API keys."
+        );
+      }
+      throw error;
     }
-
-    // Use the first project
-    this.projectIdCache = response.data.projects[0].project_id;
-    return this.projectIdCache;
   }
 
   /**
@@ -133,11 +154,27 @@ export class DeepgramClient {
   ): Promise<TranscriptionResult> {
     const projectId = await this.getProjectId();
 
-    const response = await this.client.get<GetRequestResponse>(
-      `/projects/${projectId}/requests/${requestId}`
-    );
+    try {
+      const response = await this.client.get<GetRequestResponse>(
+        `/projects/${projectId}/requests/${requestId}`
+      );
 
-    return response.data.request;
+      return response.data.request;
+    } catch (error: any) {
+      if (error.response?.status === 403) {
+        throw new Error(
+          "403 Forbidden: Your API key does not have permission to access request details. " +
+          "This requires 'usage:read' permission (Member role or higher). " +
+          "Please create an API key with proper permissions at https://console.deepgram.com"
+        );
+      }
+      if (error.response?.status === 404) {
+        throw new Error(
+          `Request ID '${requestId}' not found. Please verify the request_id is correct and belongs to project '${projectId}'.`
+        );
+      }
+      throw error;
+    }
   }
 
   /**
