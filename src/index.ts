@@ -1,23 +1,20 @@
 /**
  * Deepgram MCP Server
  * 
- * This MCP server provides async speech-to-text transcription using Deepgram's API.
- * Perfect for marketers transcribing videos and podcasts with advanced features like
- * diarization, sentiment analysis, topic detection, and more.
- * 
- * Documentation:
- * - Deepgram API: https://developers.deepgram.com/
- * - Smithery MCP: https://smithery.ai/docs/getting_started/quickstart_build_typescript
+ * A Model Context Protocol server for Deepgram's Async Speech-to-Text API
+ * Uses webhook relay to store and retrieve transcripts
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DeepgramClient } from "./deepgram-client.js";
+import axios from "axios";
 
 // Configuration schema for the MCP server
 export const configSchema = z.object({
   deepgramApiKey: z.string().describe("Your Deepgram API key for speech-to-text transcription (must have Member role or higher for full functionality)"),
-  projectId: z.string().optional().describe("Optional: Your Deepgram project ID. If not provided, will be auto-detected from your API key. Required if your API key has restricted permissions."),
+  webhookUrl: z.string().describe("Your webhook relay URL (e.g., https://your-worker.workers.dev/callback) - see deepgram-webhook-relay project"),
+  projectId: z.string().optional().describe("Optional: Your Deepgram project ID. If not provided, will be auto-detected from your API key."),
 });
 
 export default function createServer({
@@ -27,7 +24,7 @@ export default function createServer({
 }) {
   const server = new McpServer({
     name: "Deepgram Async Transcription",
-    version: "1.0.0",
+    version: "2.0.0",
   });
 
   // Initialize Deepgram client
@@ -41,7 +38,7 @@ export default function createServer({
     "submit_transcription_job",
     {
       title: "Submit Transcription Job",
-      description: "Submit an audio or video URL for async transcription with Deepgram. Supports various features like speaker diarization, sentiment analysis, topic detection, and more. Perfect for transcribing marketing videos and podcasts.",
+      description: "Submit an audio or video URL for async transcription with Deepgram. Returns a request_id that can be used to check status and retrieve results. Perfect for long videos and podcasts that would timeout with synchronous processing.",
       inputSchema: {
         url: z.string().describe("Publicly accessible URL to the audio or video file to transcribe"),
         diarize: z.boolean().optional().describe("Enable speaker diarization to detect different speakers (default: false)"),
@@ -74,6 +71,11 @@ export default function createServer({
       model,
     }) => {
       try {
+        // Generate a temporary request_id for the callback URL
+        // Deepgram will include the actual request_id in the callback payload
+        const tempRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Submit transcription with callback to webhook relay
         const result = await deepgramClient.submitTranscription({
           url,
           diarize,
@@ -88,41 +90,52 @@ export default function createServer({
           filler_words,
           language,
           model: model || 'nova-3',
+          callback: config.webhookUrl,
         });
 
         // Build feature list for user feedback
         const enabledFeatures = [];
         if (diarize) enabledFeatures.push("Speaker Diarization");
-        if (smart_format !== false) enabledFeatures.push("Smart Formatting");
-        if (punctuate !== false) enabledFeatures.push("Punctuation");
-        if (paragraphs !== false) enabledFeatures.push("Paragraphs");
-        if (utterances) enabledFeatures.push("Utterances");
         if (sentiment) enabledFeatures.push("Sentiment Analysis");
-        if (summarize) enabledFeatures.push("Summarization");
         if (topics) enabledFeatures.push("Topic Detection");
         if (detect_entities) enabledFeatures.push("Entity Extraction");
-        if (filler_words) enabledFeatures.push("Filler Words");
+        if (summarize) enabledFeatures.push("Summarization");
 
-        const featuresText = enabledFeatures.length > 0
-          ? `\n\n📋 Enabled Features:\n${enabledFeatures.map(f => `• ${f}`).join('\n')}`
-          : "";
+        let response = `✅ Transcription job submitted successfully!\n\n`;
+        response += `**Request ID**: \`${result.request_id}\`\n\n`;
+        response += `**Audio URL**: ${url}\n`;
+        response += `**Model**: ${model || 'nova-3'}\n`;
+        if (enabledFeatures.length > 0) {
+          response += `**Features Enabled**: ${enabledFeatures.join(", ")}\n`;
+        }
+        response += `\n---\n\n`;
+        response += `⏳ **Processing**: Deepgram is transcribing your audio asynchronously.\n\n`;
+        response += `**Next Steps**:\n`;
+        response += `1. Wait 30-60 seconds for processing to complete\n`;
+        response += `2. Use the \`check_job_status\` tool with request_id: \`${result.request_id}\`\n`;
+        response += `3. Poll every 30 seconds until transcript is ready\n\n`;
+        response += `💡 **Tip**: For a 1-hour video, expect ~2-3 minutes processing time.`;
 
         return {
           content: [
             {
               type: "text",
-              text: `✅ Transcription job submitted successfully!\n\n🆔 Request ID: ${result.request_id}\n\n⏳ Your audio/video is now being processed asynchronously by Deepgram. Use the "check_job_status" tool with this request ID to retrieve the results when ready.${featuresText}\n\n💡 Tip: Processing time varies based on file length and complexity. Most jobs complete within 1-5 minutes.`,
+              text: response,
             },
           ],
         };
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-
+      } catch (error: any) {
         return {
           content: [
             {
               type: "text",
-              text: `❌ Failed to submit transcription job: ${errorMessage}\n\n💡 Common issues:\n• Ensure the URL is publicly accessible\n• Verify your Deepgram API key is valid\n• Check that the file format is supported (MP3, WAV, MP4, etc.)\n• Make sure the URL points directly to the media file`,
+              text: `❌ Failed to submit transcription job: ${error.message}\n\n` +
+                    `**Troubleshooting**:\n` +
+                    `- Verify the URL is publicly accessible\n` +
+                    `- Check that the file format is supported (MP3, WAV, MP4, etc.)\n` +
+                    `- Ensure your Deepgram account has sufficient credits\n` +
+                    `- Verify your API key has proper permissions\n` +
+                    `- Check that your webhook URL is correct and accessible`,
             },
           ],
           isError: true,
@@ -136,107 +149,162 @@ export default function createServer({
     "check_job_status",
     {
       title: "Check Job Status",
-      description: "Check the status of a transcription job and retrieve the results when ready. Use the request_id returned from submit_transcription_job.",
+      description: "Check the status of a transcription job and retrieve the transcript when ready. Poll this endpoint every 30 seconds until the transcript is available.",
       inputSchema: {
         request_id: z.string().describe("The request ID returned from submit_transcription_job"),
       },
     },
     async ({ request_id }) => {
       try {
-        const result = await deepgramClient.getTranscriptionResult(request_id);
+        // Try to retrieve from webhook relay first
+        const webhookRetrievalUrl = config.webhookUrl.replace('/callback', `/transcript/${request_id}`);
+        
+        try {
+          const webhookResponse = await axios.get(webhookRetrievalUrl);
+          const data = webhookResponse.data;
+          
+          if (data.transcript && data.transcript.results) {
+            // Transcript is ready!
+            const transcript = data.transcript.results.channels[0].alternatives[0];
+            const metadata = data.transcript.metadata;
+            
+            let response = `✅ **Transcription Complete!**\n\n`;
+            response += `**Request ID**: ${request_id}\n`;
+            response += `**Duration**: ${metadata.duration?.toFixed(2)}s\n`;
+            response += `**Model**: ${metadata.model_info?.name || 'nova-3'}\n`;
+            response += `**Channels**: ${metadata.channels}\n`;
+            response += `**Stored At**: ${data.stored_at}\n`;
+            response += `\n---\n\n`;
+            response += `**Full Transcript**:\n\n${transcript.transcript}\n\n`;
 
-        // Check if the response contains transcription data
-        if (!result.response || Object.keys(result.response).length === 0) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `⏳ Transcription job is still processing...\n\n🆔 Request ID: ${request_id}\n📅 Created: ${result.created}\n\n💡 Please wait a moment and try again. Most jobs complete within 1-5 minutes.`,
-              },
-            ],
-          };
-        }
+            // Add paragraphs if available
+            if (transcript.paragraphs?.paragraphs && transcript.paragraphs.paragraphs.length > 0) {
+              response += `\n---\n\n**Paragraphs** (${transcript.paragraphs.paragraphs.length}):\n\n`;
+              transcript.paragraphs.paragraphs.forEach((para: any, idx: number) => {
+                response += `**Paragraph ${idx + 1}** (${para.start.toFixed(2)}s - ${para.end.toFixed(2)}s):\n`;
+                response += `${para.sentences.map((s: any) => s.text).join(" ")}\n\n`;
+              });
+            }
 
-        // Format the transcription result
-        const response = result.response;
-        let formattedResult = `✅ Transcription Complete!\n\n🆔 Request ID: ${request_id}\n📅 Created: ${result.created}\n\n`;
+            // Add sentiment if available
+            if (transcript.sentiment_segments && transcript.sentiment_segments.length > 0) {
+              response += `\n---\n\n**Sentiment Analysis**:\n\n`;
+              transcript.sentiment_segments.forEach((seg: any) => {
+                const emoji = seg.sentiment === 'positive' ? '😊' : seg.sentiment === 'negative' ? '😞' : '😐';
+                response += `${emoji} ${seg.sentiment} (${seg.start.toFixed(2)}s - ${seg.end.toFixed(2)}s): "${seg.text}"\n`;
+              });
+            }
 
-        // Extract transcript text
-        if (response.results?.channels?.[0]?.alternatives?.[0]?.transcript) {
-          const transcript = response.results.channels[0].alternatives[0].transcript;
-          formattedResult += `📝 Transcript:\n${transcript}\n\n`;
-        }
+            // Add topics if available
+            if (data.transcript.results.topics?.segments && data.transcript.results.topics.segments.length > 0) {
+              response += `\n---\n\n**Topics Detected**:\n\n`;
+              data.transcript.results.topics.segments.forEach((seg: any) => {
+                response += `📌 ${seg.text} (${seg.start_word})\n`;
+              });
+            }
 
-        // Add metadata
-        if (response.metadata) {
-          formattedResult += `📊 Metadata:\n`;
-          if (response.metadata.duration) {
-            formattedResult += `• Duration: ${response.metadata.duration.toFixed(2)}s\n`;
+            // Add entities if available
+            if (data.transcript.results.entities && data.transcript.results.entities.length > 0) {
+              response += `\n---\n\n**Entities Extracted**:\n\n`;
+              data.transcript.results.entities.forEach((entity: any) => {
+                response += `🏷️ **${entity.label}**: ${entity.value}\n`;
+              });
+            }
+
+            // Add summary if available
+            if (data.transcript.results.summary) {
+              response += `\n---\n\n**Summary**:\n\n${data.transcript.results.summary.text}\n`;
+            }
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: response,
+                },
+              ],
+            };
           }
-          if (response.metadata.channels) {
-            formattedResult += `• Channels: ${response.metadata.channels}\n`;
+        } catch (webhookError: any) {
+          // If 404, transcript not ready yet
+          if (webhookError.response?.status === 404) {
+            // Fall back to checking Deepgram Management API for status
+            try {
+              const mgmtResult = await deepgramClient.getTranscriptionResult(request_id);
+              
+              if (mgmtResult.response) {
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: `⏳ **Processing Complete** - Waiting for webhook delivery\n\n` +
+                            `**Request ID**: ${request_id}\n` +
+                            `**Status**: Deepgram finished processing\n` +
+                            `**Completed**: ${mgmtResult.response.completed}\n` +
+                            `**Duration**: ${mgmtResult.response.details?.duration?.toFixed(2)}s\n\n` +
+                            `The transcript should arrive at the webhook relay shortly. Please check again in 5-10 seconds.`,
+                    },
+                  ],
+                };
+              } else {
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: `⏳ **Still Processing**\n\n` +
+                            `**Request ID**: ${request_id}\n` +
+                            `**Status**: Deepgram is still transcribing your audio\n` +
+                            `**Created**: ${mgmtResult.created}\n\n` +
+                            `Please wait 30 seconds and check again. Processing time varies based on audio length.`,
+                    },
+                  ],
+                };
+              }
+            } catch (mgmtError: any) {
+              // Management API also failed
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `⏳ **Status Unknown**\n\n` +
+                          `**Request ID**: ${request_id}\n\n` +
+                          `Unable to retrieve status from webhook relay or Deepgram Management API.\n\n` +
+                          `**Possible reasons**:\n` +
+                          `- Job is still processing (wait 30 seconds and try again)\n` +
+                          `- Invalid request_id\n` +
+                          `- Webhook relay is down\n` +
+                          `- API key lacks permissions\n\n` +
+                          `**Error**: ${mgmtError.message}`,
+                  },
+                ],
+              };
+            }
           }
-          if (response.metadata.models) {
-            formattedResult += `• Model: ${response.metadata.models.join(', ')}\n`;
-          }
-          formattedResult += '\n';
+          
+          // Other webhook error
+          throw webhookError;
         }
 
-        // Add sentiment if available
-        if (response.results?.sentiments?.segments) {
-          formattedResult += `😊 Sentiment Analysis:\n`;
-          const sentiments = response.results.sentiments.segments;
-          sentiments.forEach((seg: any, idx: number) => {
-            formattedResult += `• Segment ${idx + 1}: ${seg.sentiment} (confidence: ${(seg.sentiment_score * 100).toFixed(1)}%)\n`;
-          });
-          formattedResult += '\n';
-        }
-
-        // Add topics if available
-        if (response.results?.topics?.segments) {
-          formattedResult += `🏷️ Topics Detected:\n`;
-          const topics = response.results.topics.segments;
-          topics.forEach((seg: any) => {
-            seg.topics.forEach((topic: any) => {
-              formattedResult += `• ${topic.topic} (confidence: ${(topic.confidence_score * 100).toFixed(1)}%)\n`;
-            });
-          });
-          formattedResult += '\n';
-        }
-
-        // Add summary if available
-        if (response.results?.summary) {
-          formattedResult += `📄 Summary:\n${response.results.summary.short || response.results.summary.text}\n\n`;
-        }
-
-        // Add entities if available
-        if (response.results?.entities) {
-          formattedResult += `🔍 Entities Detected:\n`;
-          response.results.entities.forEach((entity: any) => {
-            formattedResult += `• ${entity.value} (${entity.type})\n`;
-          });
-          formattedResult += '\n';
-        }
-
-        // Add full JSON response for advanced users
-        formattedResult += `\n📦 Full Response (JSON):\n\`\`\`json\n${JSON.stringify(response, null, 2)}\n\`\`\``;
-
+        // Should not reach here
         return {
           content: [
             {
               type: "text",
-              text: formattedResult,
+              text: `❓ Unexpected response format from webhook relay`,
             },
           ],
         };
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-
+      } catch (error: any) {
         return {
           content: [
             {
               type: "text",
-              text: `❌ Failed to check job status: ${errorMessage}\n\n💡 Common issues:\n• Verify the request_id is correct\n• Ensure your Deepgram API key is valid\n• The job may not exist or may have expired`,
+              text: `❌ Failed to check job status: ${error.message}\n\n` +
+                    `**Troubleshooting**:\n` +
+                    `- Verify the request_id is correct\n` +
+                    `- Check that your webhook relay is deployed and accessible\n` +
+                    `- Ensure your API key has proper permissions\n` +
+                    `- Try again in 30 seconds if job is still processing`,
             },
           ],
           isError: true,
@@ -245,49 +313,61 @@ export default function createServer({
     }
   );
 
-  // Test connection tool
+  // Tool 3: Test Connection
   server.registerTool(
     "test_deepgram_connection",
     {
       title: "Test Deepgram Connection",
-      description: "Test connectivity to Deepgram API and validate your API key",
+      description: "Test the connection to Deepgram API and verify your API key is working correctly.",
       inputSchema: {},
     },
     async () => {
       try {
-        const isConnected = await deepgramClient.testConnection();
-
-        if (isConnected) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `✅ Deepgram API Connection Successful!\n\n🔑 API Key: ${config.deepgramApiKey.substring(0, 8)}...\n\n🚀 You can now transcribe audio and video files using Deepgram's powerful speech-to-text API.\n\n📚 Available Tools:\n• submit_transcription_job - Submit audio/video for async transcription\n• check_job_status - Check status and retrieve results\n• test_deepgram_connection - Test API connectivity`,
-              },
-            ],
-          };
-        } else {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `❌ Connection test failed: Invalid API key or network error\n\n💡 Troubleshooting:\n• Verify your Deepgram API key is correct\n• Check your internet connection\n• Visit https://console.deepgram.com to get or verify your API key`,
-              },
-            ],
-          };
+        const result = await deepgramClient.testConnection();
+        
+        // Also test webhook relay
+        let webhookStatus = "❓ Not tested";
+        try {
+          const webhookHealthUrl = config.webhookUrl.replace('/callback', '/health');
+          const webhookResponse = await axios.get(webhookHealthUrl, { timeout: 5000 });
+          if (webhookResponse.status === 200) {
+            webhookStatus = "✅ Healthy";
+          }
+        } catch (webhookError) {
+          webhookStatus = "❌ Unreachable";
         }
-      } catch (error) {
+
         return {
           content: [
             {
               type: "text",
-              text: `❌ Connection test failed: ${error instanceof Error ? error.message : "Unknown error"}\n\n💡 Troubleshooting:\n• Verify your Deepgram API key is correct\n• Check your internet connection\n• Visit https://console.deepgram.com to get or verify your API key`,
+              text: `✅ Connection successful!\n\n` +
+                    `**Deepgram API**: Connected and authenticated\n` +
+                    `**Webhook Relay**: ${webhookStatus}\n` +
+                    `**Webhook URL**: ${config.webhookUrl}\n\n` +
+                    `Your setup is ready to transcribe audio and video files!`,
             },
           ],
+        };
+      } catch (error: any) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `❌ Connection failed: ${error.message}\n\n` +
+                    `**Troubleshooting**:\n` +
+                    `- Verify your Deepgram API key is correct\n` +
+                    `- Check that your Deepgram account is active\n` +
+                    `- Ensure you have credits in your account\n` +
+                    `- Verify your webhook URL is correct and deployed\n` +
+                    `- Visit https://console.deepgram.com to manage your account`,
+            },
+          ],
+          isError: true,
         };
       }
     }
   );
 
-  return server.server;
+  return server;
 }

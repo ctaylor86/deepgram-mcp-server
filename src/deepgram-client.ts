@@ -19,6 +19,7 @@ export interface TranscriptionOptions {
   filler_words?: boolean;
   language?: string;
   model?: string;
+  callback?: string; // Optional: User's callback URL for async processing
 }
 
 export interface SubmitTranscriptionResponse {
@@ -67,17 +68,20 @@ export class DeepgramClient {
   }
 
   /**
-   * Submit an audio/video URL for async transcription
-   * Uses a dummy callback URL to trigger async processing
+   * Submit an audio/video URL for transcription
+   * - Without callback: Synchronous, returns full transcript immediately
+   * - With callback: Async, returns request_id and sends results to callback URL
    */
   async submitTranscription(
     options: TranscriptionOptions
-  ): Promise<SubmitTranscriptionResponse> {
+  ): Promise<any> {
     // Build query parameters
-    const params: Record<string, any> = {
-      // Use a dummy callback to trigger async mode
-      callback: "https://webhook.site/00000000-0000-0000-0000-000000000000",
-    };
+    const params: Record<string, any> = {};
+
+    // Add callback if provided (for async mode)
+    if (options.callback) {
+      params.callback = options.callback;
+    }
 
     // Add optional parameters if provided
     if (options.diarize !== undefined) params.diarize = options.diarize;
@@ -97,7 +101,7 @@ export class DeepgramClient {
     if (options.language !== undefined) params.language = options.language;
     if (options.model !== undefined) params.model = options.model;
 
-    const response = await this.client.post<SubmitTranscriptionResponse>(
+    const response = await this.client.post(
       "/listen",
       { url: options.url },
       { params }
