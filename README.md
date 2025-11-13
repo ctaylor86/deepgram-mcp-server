@@ -53,7 +53,7 @@ Submit an audio or video URL for async transcription with customizable options.
 - `detect_entities` (optional): Extract entities (default: false)
 - `filler_words` (optional): Include filler words like "uh" and "um" (default: false)
 - `language` (optional): Language code (default: "en")
-- `model` (optional): AI model to use (default: "nova-2")
+- `model` (optional): AI model to use (default: "nova-3")
 
 **Returns:**
 - `request_id`: Use this ID to check the status and retrieve results

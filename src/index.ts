@@ -53,7 +53,7 @@ export default function createServer({
         detect_entities: z.boolean().optional().describe("Identify and extract key entities like names, places, organizations (default: false)"),
         filler_words: z.boolean().optional().describe("Include filler words like 'uh' and 'um' in the transcript (default: false)"),
         language: z.string().optional().describe("Language code (BCP-47 format, e.g., 'en', 'es', 'fr') (default: 'en')"),
-        model: z.string().optional().describe("AI model to use for transcription (e.g., 'nova-2', 'nova-3', 'whisper') (default: 'nova-2')"),
+        model: z.string().optional().describe("AI model to use for transcription (e.g., 'nova-2', 'nova-3', 'whisper') (default: 'nova-3')"),
       },
     },
     async ({
@@ -85,7 +85,7 @@ export default function createServer({
           detect_entities,
           filler_words,
           language,
-          model,
+          model: model || 'nova-3',
         });
 
         // Build feature list for user feedback
