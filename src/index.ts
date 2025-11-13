@@ -8,6 +8,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DeepgramClient } from "./deepgram-client.js";
+import { Logger } from "./logger.js";
 import axios from "axios";
 
 // Configuration schema for the MCP server
@@ -32,6 +33,9 @@ export default function createServer({
     apiKey: config.deepgramApiKey,
     projectId: config.projectId,
   });
+
+  // Initialize logger
+  const logger = new Logger(config.webhookUrl, true);
 
   // Tool 1: Submit Transcription Job
   server.registerTool(
@@ -70,12 +74,15 @@ export default function createServer({
       language,
       model,
     }) => {
+      const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const startTime = Date.now();
+      
       try {
-        // Generate a temporary request_id for the callback URL
-        // Deepgram will include the actual request_id in the callback payload
-        const tempRequestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        // Log request received
+        await logger.logRequestReceived('submit_transcription_job', requestId, { url, model: model || 'nova-3' });
         
         // Submit transcription with callback to webhook relay
+        const apiStartTime = Date.now();
         const result = await deepgramClient.submitTranscription({
           url,
           diarize,
@@ -92,6 +99,9 @@ export default function createServer({
           model: model || 'nova-3',
           callback: config.webhookUrl,
         });
+        
+        // Log external API call
+        await logger.logExternalApiCall('deepgram', requestId, Date.now() - apiStartTime, 200);
 
         // Build feature list for user feedback
         const enabledFeatures = [];
@@ -116,6 +126,9 @@ export default function createServer({
         response += `3. Poll every 30 seconds until transcript is ready\n\n`;
         response += `💡 **Tip**: For a 1-hour video, expect ~2-3 minutes processing time.`;
 
+        // Log response sent
+        await logger.logResponseSent('submit_transcription_job', requestId, Date.now() - startTime, response.length);
+
         return {
           content: [
             {
@@ -125,6 +138,9 @@ export default function createServer({
           ],
         };
       } catch (error: any) {
+        // Log error
+        await logger.logError('submit_transcription_job', requestId, error);
+        
         return {
           content: [
             {
@@ -155,7 +171,12 @@ export default function createServer({
       },
     },
     async ({ request_id }) => {
+      const startTime = Date.now();
+      
       try {
+        // Log request received
+        await logger.logRequestReceived('check_job_status', request_id);
+        
         // Try to retrieve from webhook relay first
         const webhookRetrievalUrl = config.webhookUrl.replace('/callback', `/transcript/${request_id}`);
         
@@ -216,6 +237,9 @@ export default function createServer({
               response += `\n---\n\n**Summary**:\n\n${data.transcript.results.summary.text}\n`;
             }
 
+            // Log response sent
+            await logger.logResponseSent('check_job_status', request_id, Date.now() - startTime, response.length);
+
             return {
               content: [
                 {
@@ -228,6 +252,9 @@ export default function createServer({
         } catch (webhookError: any) {
           // If 404, transcript not ready yet - this is normal, job is still processing
           if (webhookError.response?.status === 404) {
+            // Log still processing
+            await logger.log('still_processing', { request_id, duration_ms: Date.now() - startTime });
+            
             return {
               content: [
                 {
@@ -279,6 +306,9 @@ export default function createServer({
           ],
         };
       } catch (error: any) {
+        // Log error
+        await logger.logError('check_job_status', request_id, error);
+        
         return {
           content: [
             {
